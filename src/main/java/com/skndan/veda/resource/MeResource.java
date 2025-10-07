@@ -38,7 +38,7 @@ public class MeResource {
       profile = new Profile();
       profile.email = email;
       profile.name = name;
-      profile.uid = uid;
+      profile.id = uid;
       profile.picture = picture;
       profile.persist();
     }
