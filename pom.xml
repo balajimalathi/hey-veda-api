@@ -109,6 +109,11 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-hibernate-validator</artifactId>
     </dependency>
+    <dependency>
+    <groupId>io.quarkiverse.minio</groupId>
+      <artifactId>quarkus-minio</artifactId>
+      <version>3.8.6</version>
+    </dependency>
   </dependencies>
   <build>
     <plugins>
