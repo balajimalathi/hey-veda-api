@@ -31,15 +31,13 @@ public class MeResource {
     String uid = jwt.getSubject();
     String email = jwt.getClaim("email");
     String name = jwt.getClaim("name");
-    String picture = jwt.containsClaim("picture") ? jwt.getClaim("picture") : null;
 
     Profile profile = repo.findByUid(uid);
     if (profile == null) {
       profile = new Profile();
       profile.email = email;
       profile.name = name;
-      profile.uid = uid;
-      profile.picture = picture;
+      profile.id = uid;
       profile.persist();
     }
 

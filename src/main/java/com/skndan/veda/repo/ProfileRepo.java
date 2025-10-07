@@ -23,6 +23,6 @@ public class ProfileRepo extends BaseRepo<Profile, Long> implements PanacheRepos
     }
 
     public Profile findByUid(String uid) {
-        return find("uid", uid).firstResult();
+        return find("id", uid).firstResult();
     }
 }
