@@ -1,4 +1,4 @@
-package com.skndan.veda.resource;
+package com.skndan.veda.exception;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
