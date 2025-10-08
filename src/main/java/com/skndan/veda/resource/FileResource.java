@@ -11,9 +11,15 @@ import jakarta.ws.rs.core.MediaType;
 
 @Path("/v1/file")
 public class FileResource {
-   
+
     @Inject
     MinioService minioService;
+
+    /**
+     * Record to represent the upload URL response
+     */
+    public record UploadUrlResponse(String url) {
+    }
 
     @GET
     @Path("/upload-url")
@@ -23,8 +29,4 @@ public class FileResource {
         return new UploadUrlResponse(url);
     }
 
-    /**
-     * Record to represent the upload URL response
-     */
-    public record UploadUrlResponse(String url) {}
 }
