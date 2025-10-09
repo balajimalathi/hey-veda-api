@@ -1,5 +1,7 @@
 package com.skndan.veda.service;
 
+import com.skndan.veda.model.RetrievalResponse;
+
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import io.quarkiverse.langchain4j.RegisterAiService;
@@ -19,5 +21,5 @@ import jakarta.enterprise.context.ApplicationScoped;
     """)
 public interface Bot {
    @UserMessage("Answer the user's question: {question}")
-   public String answer(String question);
+   public RetrievalResponse answer(String question);
 }

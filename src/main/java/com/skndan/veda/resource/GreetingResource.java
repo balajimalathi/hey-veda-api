@@ -22,12 +22,12 @@ public class GreetingResource {
     public record IngestionRequest(String content, String tenantId, String workspaceId, String fileName) {
     }
 
-      public record RetrievalRequest(String question) {
+    public record RetrievalRequest(String question) {
     }
 
     @Inject
     Bot bot;
-    
+
     @Inject
     TenantContext tenantContext;
 
@@ -54,13 +54,6 @@ public class GreetingResource {
         );
 
         return "Hello from Quarkus REST";
-    }
-
-    @POST
-    @Path("/ask")
-    @Produces(MediaType.TEXT_PLAIN)
-    public String askQuestion(@RequestBody RetrievalRequest request) {
-        return bot.answer(request.question);
     }
 
     @GET
