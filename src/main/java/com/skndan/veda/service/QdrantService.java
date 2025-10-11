@@ -57,8 +57,6 @@ public class QdrantService {
                                 .build();
 
                 ingestor.ingest(document);
-
-                store.close();
         }
 
         @PreDestroy

@@ -54,9 +54,9 @@ public class DocumentIngestionService {
     public void triggerIngestion(Long fileInfoId, String filePath, String tenantId) {
         System.out.println("Triggering ingestion for FileInfo ID: " + fileInfoId);
         JsonObject message = new JsonObject()
-            .put("fileInfoId", fileInfoId)
-            .put("filePath", filePath)
-            .put("tenantId", tenantId);
+                .put("fileInfoId", fileInfoId)
+                .put("filePath", filePath)
+                .put("tenantId", tenantId);
         eventBus.send("document.ingest", message);
         System.out.println("Event sent to document.ingest: " + message.encode());
     }
@@ -66,137 +66,78 @@ public class DocumentIngestionService {
      */
     @ConsumeEvent("document.ingest")
     @Blocking
-    @Transactional
     public void ingestDocument(JsonObject message) {
         System.out.println("ConsumeEvent triggered with: " + message.encode());
-        
+
         Long fileInfoId = message.getLong("fileInfoId");
         String filePath = message.getString("filePath");
         String tenantId = message.getString("tenantId");
-        
-        System.out.println("Starting ingestion for FileInfo ID: " + fileInfoId + ", filePath: " + filePath + ", tenantId: " + tenantId);
 
-        FileInfo fileInfo = null;
+        System.out.printf("Starting ingestion for FileInfo ID: %d, filePath: %s, tenantId: %s%n",
+                fileInfoId, filePath, tenantId);
+
+        FileInfo fileInfo = fileInfoRepo.findById(fileInfoId);
+        if (fileInfo == null) {
+            publishEvent(new IngestionEvent(fileInfoId, null, null,
+                    IngestionStatus.FAILED, "FileInfo not found", null));
+            return;
+        }
+
+        // Update to PROCESSING inside a short transaction
+        updateFileStatus(fileInfoId, IngestionStatus.PROCESSING, null);
+
         try {
-            // Update status to PROCESSING
-            fileInfo = fileInfoRepo.findById(fileInfoId);
+            publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
+                    fileInfo.name, IngestionStatus.PROCESSING, "Downloading file...", 10));
 
-            if (fileInfo == null) {
-                System.out.println("FileInfo not found for ID: " + fileInfoId);
-                publishEvent(new IngestionEvent(
-                    fileInfoId,
-                    null,
-                    null,
-                    IngestionStatus.FAILED,
-                    "FileInfo not found",
-                    null
-                ));
-                return;
-            }
-
-            fileInfo.ingestionStatus = IngestionStatus.PROCESSING;
-            fileInfoRepo.persist(fileInfo);
-            
-            publishEvent(new IngestionEvent(
-                fileInfo.getId(),
-                fileInfo.workspace.getId(),
-                fileInfo.name,
-                IngestionStatus.PROCESSING,
-                "Starting document ingestion...",
-                10
-            ));
-
-            // Download file from MinIO
             File file = minioService.downloadFile(fileInfo.storageUrl);
-            publishEvent(new IngestionEvent(
-                fileInfo.getId(),
-                fileInfo.workspace.getId(),
-                fileInfo.name,
-                IngestionStatus.PROCESSING,
-                "File downloaded from storage",
-                30
-            ));
 
-            // Check if file type is supported
-            if (!textExtractor.isSupported(fileInfo.type)) {
-                throw new UnsupportedOperationException(
-                    "Unsupported file type: " + fileInfo.type);
-            }
+            publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
+                    fileInfo.name, IngestionStatus.PROCESSING, "File downloaded", 30));
 
-            // Extract text from document
+            if (!textExtractor.isSupported(fileInfo.type))
+                throw new UnsupportedOperationException("Unsupported file type: " + fileInfo.type);
+
             String text = textExtractor.extractText(file, fileInfo.type);
-            System.out.println("Extracted text length: " + (text != null ? text.length() : 0));
-            publishEvent(new IngestionEvent(
-                fileInfo.getId(),
-                fileInfo.workspace.getId(),
-                fileInfo.name,
-                IngestionStatus.PROCESSING,
-                "Text extracted from document",
-                60
-            ));
 
-            // Ingest into Qdrant
-            qdrantService.ingest(
-                text,
-                tenantId,
-                fileInfo.workspace.getId().toString(),
-                fileInfo.uploaderId.toString(),
-                fileInfo.name
-            );
-            publishEvent(new IngestionEvent(
-                fileInfo.getId(),
-                fileInfo.workspace.getId(),
-                fileInfo.name,
-                IngestionStatus.PROCESSING,
-                "Document ingested into vector store",
-                90
-            ));
+            publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
+                    fileInfo.name, IngestionStatus.PROCESSING, "Text extracted", 60));
 
-            // Clean up temporary file
+            // **Embedding and Qdrant ingestion – long running**
+            qdrantService.ingest(text, tenantId,
+                    fileInfo.workspace.getId().toString(),
+                    fileInfo.uploaderId.toString(),
+                    fileInfo.name);
+
+            publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
+                    fileInfo.name, IngestionStatus.PROCESSING, "Vector embedding completed", 90));
+
             file.delete();
 
-            // Update status to COMPLETED
-            fileInfo.ingestionStatus = IngestionStatus.COMPLETED;
-            fileInfo.ingestionError = null;
-            fileInfoRepo.persist(fileInfo);
+            updateFileStatus(fileInfoId, IngestionStatus.COMPLETED, null);
 
-            publishEvent(new IngestionEvent(
-                fileInfo.getId(),
-                fileInfo.workspace.getId(),
-                fileInfo.name,
-                IngestionStatus.COMPLETED,
-                "Document ingestion completed successfully",
-                100
-            ));
+            publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
+                    fileInfo.name, IngestionStatus.COMPLETED, "Document ingestion completed", 100));
 
         } catch (Exception e) {
-            // Update status to FAILED
-            if (fileInfo != null) {
-                fileInfo.ingestionStatus = IngestionStatus.FAILED;
-                fileInfo.ingestionError = e.getMessage();
-                fileInfoRepo.persist(fileInfo);
+            updateFileStatus(fileInfoId, IngestionStatus.FAILED, e.getMessage());
 
-                publishEvent(new IngestionEvent(
-                    fileInfo.getId(),
-                    fileInfo.workspace.getId(),
-                    fileInfo.name,
-                    IngestionStatus.FAILED,
-                    "Ingestion failed: " + e.getMessage(),
-                    0
-                ));
-            } else {
-                publishEvent(new IngestionEvent(
-                    fileInfoId,
-                    null,
-                    null,
-                    IngestionStatus.FAILED,
-                    "Ingestion failed: " + e.getMessage(),
-                    0
-                ));
-            }
-            
+            publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
+                    fileInfo.name, IngestionStatus.FAILED,
+                    "Ingestion failed: " + e.getMessage(), 0));
+
             e.printStackTrace();
         }
+    }
+
+    @Transactional
+    void updateFileStatus(Long fileInfoId, IngestionStatus status, String error) {
+        FileInfo fileInfo = fileInfoRepo.findById(fileInfoId);
+        if (fileInfo == null)
+            return;
+        fileInfo.ingestionStatus = status;
+        fileInfo.ingestionError = error;
+        fileInfoRepo.persist(fileInfo);
     }
 
     /**
@@ -204,7 +145,7 @@ public class DocumentIngestionService {
      */
     public Multi<IngestionEvent> getIngestionEventStream() {
         return ingestionProcessor
-            .onOverflow().drop();
+                .onOverflow().drop();
     }
 
     /**
@@ -217,17 +158,18 @@ public class DocumentIngestionService {
     /**
      * Request record for async ingestion
      */
-    public record IngestionRequest(Long fileInfoId, String filePath, String tenantId) {}
+    public record IngestionRequest(Long fileInfoId, String filePath, String tenantId) {
+    }
 
     /**
      * Event record for SSE streaming with workspace and file details
      */
     public record IngestionEvent(
-        Long fileId,
-        Long workspaceId,
-        String fileName,
-        IngestionStatus status,
-        String message,
-        Integer progress
-    ) {}
+            Long fileId,
+            Long workspaceId,
+            String fileName,
+            IngestionStatus status,
+            String message,
+            Integer progress) {
+    }
 }
