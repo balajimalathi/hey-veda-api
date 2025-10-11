@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>SSE File Ingestion Status Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+      background: #fafafa;
+    }
+
+    h1 {
+      color: #333;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .section {
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+    }
+
+    #log {
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 15px;
+      height: 300px;
+      overflow-y: auto;
+      margin-top: 10px;
+    }
+
+    .event {
+      padding: 5px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 14px;
+    }
+
+    .event:last-child {
+      border-bottom: none;
+    }
+
+    .progress {
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .status.pending { background: #ffc107; color: #000; }
+    .status.processing { background: #17a2b8; color: #fff; }
+    .status.completed { background: #28a745; color: #fff; }
+    .status.failed { background: #dc3545; color: #fff; }
+
+    .connection-status {
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+
+    .connection-status.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .connection-status.disconnected {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .connection-status.connecting {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+
+    .upload-section input[type="file"] {
+      margin: 10px 0;
+    }
+
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    button:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+    }
+
+    .workspace-input {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      width: 100px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>File Ingestion Status Monitor</h1>
+    
+    <div class="section">
+      <h2>Workspace Configuration</h2>
+      <label>
+        Workspace ID:
+        <input type="number" id="workspaceId" class="workspace-input" value="1" min="1">
+      </label>
+      <button onclick="reconnectSSE()">Reconnect to Workspace</button>
+      <div id="connectionStatus" class="connection-status connecting">Connecting to SSE stream...</div>
+    </div>
+
+    <div class="section">
+      <h2>Event Log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const logDiv = document.getElementById("log");
+    const connectionStatusDiv = document.getElementById("connectionStatus");
+    const workspaceIdInput = document.getElementById("workspaceId");
+    let eventSource = null;
+
+    function addLogEntry(message, type = 'info') {
+      const line = document.createElement("div");
+      line.classList.add("event");
+      
+      const timestamp = new Date().toLocaleTimeString();
+      
+      if (type === 'event') {
+        line.innerHTML = `[${timestamp}] ${message}`;
+      } else if (type === 'error') {
+        line.style.color = "red";
+        line.textContent = `[${timestamp}] ⚠️ ${message}`;
+      } else {
+        line.style.color = "#666";
+        line.textContent = `[${timestamp}] ${message}`;
+      }
+      
+      logDiv.appendChild(line);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function updateConnectionStatus(status, message) {
+      connectionStatusDiv.className = 'connection-status ' + status;
+      connectionStatusDiv.textContent = message;
+    }
+
+    function connectSSE() {
+      const workspaceId = workspaceIdInput.value || 1;
+      
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      updateConnectionStatus('connecting', `Connecting to workspace ${workspaceId}...`);
+      addLogEntry(`Attempting to connect to SSE stream for workspace ${workspaceId}...`);
+
+      eventSource = new EventSource(`/api/v1/file/ingestion-status/${workspaceId}`);
+
+      eventSource.onopen = () => {
+        updateConnectionStatus('connected', `Connected to workspace ${workspaceId}`);
+        addLogEntry(`Successfully connected to SSE stream for workspace ${workspaceId}`);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("SSE Event received:", data);
+          
+          const statusClass = data.status ? data.status.toLowerCase() : 'unknown';
+          const statusBadge = `<span class="status ${statusClass}">${data.status || 'UNKNOWN'}</span>`;
+          
+          const message = `File: <strong>${data.fileName || 'Unknown'}</strong> ${statusBadge} — ${data.message || 'No message'} — Progress: <span class="progress">${data.progress || 0}%</span>`;
+          addLogEntry(message, 'event');
+        } catch (e) {
+          console.error("Error parsing SSE event:", e);
+          addLogEntry(`Error parsing event: ${e.message}`, 'error');
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error("SSE Error:", err);
+        updateConnectionStatus('disconnected', 'Connection error or stream closed');
+        addLogEntry('Connection error or stream closed. Retrying...', 'error');
+        
+        // EventSource will automatically try to reconnect
+        setTimeout(() => {
+          if (eventSource.readyState === EventSource.CLOSED) {
+            addLogEntry('Connection permanently closed. Click "Reconnect" to retry.', 'error');
+          }
+        }, 3000);
+      };
+    }
+
+    function reconnectSSE() {
+      addLogEntry('Manual reconnection requested...');
+      connectSSE();
+    }
+
+    // Initial connection
+    connectSSE();
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    });
+  </script>
+</body>
+
+</html>

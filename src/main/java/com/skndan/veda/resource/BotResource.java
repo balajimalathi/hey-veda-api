@@ -22,7 +22,7 @@ public class BotResource {
 
   @POST
   @Path("/ask")
-  @Produces(MediaType.TEXT_PLAIN)
+  @Produces(MediaType.APPLICATION_JSON)
   public RetrievalResponse askQuestion(@RequestBody RetrievalRequest request) {
     return bot.answer(request.question);
   }
