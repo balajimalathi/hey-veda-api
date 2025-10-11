@@ -10,6 +10,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStoreIngestor;
 import dev.langchain4j.store.embedding.qdrant.QdrantEmbeddingStore;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import static dev.langchain4j.data.document.splitter.DocumentSplitters.recursive;
@@ -56,6 +57,13 @@ public class QdrantService {
                                 .build();
 
                 ingestor.ingest(document);
+
+                store.close();
+        }
+
+        @PreDestroy
+        void close() {
+                store.close(); // closes ManagedChannel inside
         }
 
         /**
