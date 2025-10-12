@@ -103,11 +103,22 @@ public class DocumentIngestionService {
             publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
                     fileInfo.name, IngestionStatus.PROCESSING, "Text extracted", 60));
 
-            // **Embedding and Qdrant ingestion – long running**
+            // **Embedding and Qdrant ingestion – long running with progress updates**
             qdrantService.ingest(text, tenantId,
                     fileInfo.workspace.getId().toString(),
                     fileInfo.uploaderId.toString(),
-                    fileInfo.name);
+                    fileInfo.name,
+                    progressInfo -> {
+                        // Calculate progress between 60% and 90%
+                        int embeddingProgress = 60 + (progressInfo.getProgressPercentage() * 30 / 100);
+                        publishEvent(new IngestionEvent(
+                                fileInfo.getId(),
+                                fileInfo.workspace.getId(),
+                                fileInfo.name,
+                                IngestionStatus.PROCESSING,
+                                progressInfo.message(),
+                                embeddingProgress));
+                    });
 
             publishEvent(new IngestionEvent(fileInfo.getId(), fileInfo.workspace.getId(),
                     fileInfo.name, IngestionStatus.PROCESSING, "Vector embedding completed", 90));

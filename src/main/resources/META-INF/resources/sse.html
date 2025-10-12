@@ -192,6 +192,12 @@
           const data = JSON.parse(event.data);
           console.log("SSE Event received:", data);
           
+          // Filter out heartbeat events from display (but keep connection alive)
+          if (data.fileName === 'heartbeat') {
+            console.log("Heartbeat received - connection alive");
+            return;
+          }
+          
           const statusClass = data.status ? data.status.toLowerCase() : 'unknown';
           const statusBadge = `<span class="status ${statusClass}">${data.status || 'UNKNOWN'}</span>`;
           

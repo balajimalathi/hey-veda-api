@@ -34,6 +34,7 @@ import org.jboss.resteasy.reactive.RestStreamElementType;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -184,6 +185,7 @@ public class FileResource {
 
     /**
      * SSE endpoint for ingestion status updates filtered by workspace
+     * with keepalive heartbeat to prevent connection timeout
      */
     @GET
     @Path("/ingestion-status/{workspaceId}")
@@ -191,8 +193,21 @@ public class FileResource {
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     public Multi<IngestionEvent> streamIngestionStatus(
             @jakarta.ws.rs.PathParam("workspaceId") Long workspaceId) {
-        return ingestionService.getIngestionEventStream()
+        
+        // Create heartbeat event to keep connection alive
+        IngestionEvent heartbeat = new IngestionEvent(
+            null, workspaceId, "heartbeat", IngestionStatus.PROCESSING, "keepalive", 0);
+        
+        // Main event stream filtered by workspace
+        Multi<IngestionEvent> eventStream = ingestionService.getIngestionEventStream()
             .filter(event -> event.workspaceId() != null && event.workspaceId().equals(workspaceId));
+        
+        // Heartbeat stream - emit every 15 seconds
+        Multi<IngestionEvent> heartbeatStream = Multi.createFrom().ticks().every(Duration.ofSeconds(15))
+            .map(tick -> heartbeat);
+        
+        // Merge event stream with heartbeat to prevent timeout
+        return Multi.createBy().merging().streams(eventStream, heartbeatStream);
     }
 
     /**
