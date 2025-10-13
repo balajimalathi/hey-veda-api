@@ -13,6 +13,8 @@ public class Workspace extends BaseEntity {
   @Size(min = 2, max = 100, message = "Workspace name must be between 2 and 100 characters")
   public String name; 
 
+  public String emoji; 
+
   public UUID ownerId;
   
 }
