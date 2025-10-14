@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skndan.veda.config.TenantContext;
 import com.skndan.veda.entity.FileInfo;
 import com.skndan.veda.entity.FileInfo.IngestionStatus;
+import com.skndan.veda.entity.Paged;
 import com.skndan.veda.entity.Workspace;
 import com.skndan.veda.repo.FileInfoRepo;
 import com.skndan.veda.repo.WorkspaceRepo;
@@ -21,10 +22,12 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.FormParam;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
@@ -73,6 +76,23 @@ public class FileResource {
      * Record to represent the upload URL response
      */
     public record UploadUrlResponse(String url) {
+    }
+
+    @GET
+    @Path("/workspace/{workspaceId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getFileByWorkspace(
+            @PathParam("workspaceId") long workspaceId,
+            @QueryParam("page") @DefaultValue("0") int page,
+            @QueryParam("size") @DefaultValue("10") int size) {
+        Workspace workspace = workspaceRepo.findById(workspaceId);
+
+        if (workspace == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+
+        Paged<FileInfo> workspaces = fileInfoRepo.findByWorkspace(workspace, page, size);
+        return Response.ok(workspaces).build();
     }
 
     @GET
@@ -144,10 +164,10 @@ public class FileResource {
                 fileInfo.ingestionStatus = IngestionStatus.PENDING;
 
                 fileInfoRepo.persist(fileInfo);
-                
+
                 // Flush to ensure the entity is persisted and ID is generated
                 entityManager.flush();
-                
+
                 System.out.println("FileInfo persisted with ID: " + fileInfo.getId());
 
                 // Trigger async ingestion if autoIngest is enabled and file type is supported
@@ -164,8 +184,8 @@ public class FileResource {
             }
 
             String message = shouldAutoIngest
-                ? "Files uploaded successfully and ingestion started"
-                : "Files uploaded successfully";
+                    ? "Files uploaded successfully and ingestion started"
+                    : "Files uploaded successfully";
 
             return Response.ok()
                     .entity(new MultipleUploadResponse(results, message))
@@ -193,19 +213,19 @@ public class FileResource {
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     public Multi<IngestionEvent> streamIngestionStatus(
             @jakarta.ws.rs.PathParam("workspaceId") Long workspaceId) {
-        
+
         // Create heartbeat event to keep connection alive
         IngestionEvent heartbeat = new IngestionEvent(
-            null, workspaceId, "heartbeat", IngestionStatus.PROCESSING, "keepalive", 0);
-        
+                null, workspaceId, "heartbeat", IngestionStatus.PROCESSING, "keepalive", 0);
+
         // Main event stream filtered by workspace
         Multi<IngestionEvent> eventStream = ingestionService.getIngestionEventStream()
-            .filter(event -> event.workspaceId() != null && event.workspaceId().equals(workspaceId));
-        
+                .filter(event -> event.workspaceId() != null && event.workspaceId().equals(workspaceId));
+
         // Heartbeat stream - emit every 15 seconds
         Multi<IngestionEvent> heartbeatStream = Multi.createFrom().ticks().every(Duration.ofSeconds(15))
-            .map(tick -> heartbeat);
-        
+                .map(tick -> heartbeat);
+
         // Merge event stream with heartbeat to prevent timeout
         return Multi.createBy().merging().streams(eventStream, heartbeatStream);
     }
