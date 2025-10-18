@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import com.skndan.veda.service.DocumentTextExtractor.PageContent;
+
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
@@ -34,60 +36,67 @@ public class QdrantService {
          * @param workspaceId      Workspace identifier
          * @param userId           User who uploaded the document
          * @param fileName         Original file name
-         * @param progressCallback Callback for progress updates (segment index, total segments)
+         * @param progressCallback Callback for progress updates (segment index, total
+         *                         segments)
          */
         public void ingest(
-                        String text,
+                        List<PageContent> pages,
                         String tenantId,
                         String workspaceId,
                         String userId,
                         String fileName,
                         Consumer<ProgressInfo> progressCallback) {
-                System.out.println("Starting ingestion into Qdrant for file: " + fileName + ", tenantId: " + tenantId
-                                + ", workspaceId: " + workspaceId + ", userId: " + userId);
-                
-                // Create comprehensive metadata for multi-tenancy
-                Map<String, String> meta = createMetadata(
-                                tenantId,
-                                workspaceId,
-                                userId,
-                                fileName);
 
-                Document document = Document.document(text, new Metadata(meta));
+                int totalPages = pages.size();
+                System.out.println("Starting multi-page ingestion for file: " + fileName + " with " + totalPages
+                                + " pages");
 
-                // Split document into segments
-                var splitter = recursive(768, 0);
-                List<TextSegment> segments = splitter.split(document);
-                
-                int totalSegments = segments.size();
-                System.out.println("Document split into " + totalSegments + " segments");
-                
-                // Notify about splitting completion
-                if (progressCallback != null) {
-                        progressCallback.accept(new ProgressInfo(0, totalSegments, "Document split into segments"));
-                }
+                int totalSegmentsProcessed = 0;
 
-                // Process each segment individually with progress updates
-                for (int i = 0; i < segments.size(); i++) {
-                        TextSegment segment = segments.get(i);
-                        
-                        // Generate embedding for this segment
-                        Embedding embedding = embeddingModel.embed(segment).content();
-                        
-                        // Store in Qdrant
-                        store.add(embedding, segment);
-                        
-                        // Report progress
-                        if (progressCallback != null) {
-                                int currentSegment = i + 1;
-                                String message = String.format("Processed segment %d/%d", currentSegment, totalSegments);
-                                progressCallback.accept(new ProgressInfo(currentSegment, totalSegments, message));
+                for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                        PageContent page = pages.get(pageIndex);
+
+                        // --- Step 1: Create metadata per page ---
+                        Map<String, String> meta = createMetadata(
+                                        tenantId,
+                                        workspaceId,
+                                        userId,
+                                        fileName);
+                        meta.put("pageNumber", String.valueOf(page.pageNumber()));
+                        meta.put("imageUrls", String.join(",", page.imageUrls()));
+
+                        // --- Step 2: Create a Document from this page ---
+                        Document document = Document.document(page.text(), new Metadata(meta));
+
+                        // --- Step 3: Split page text into chunks ---
+                        var splitter = recursive(768, 0);
+                        List<TextSegment> segments = splitter.split(document);
+                        int totalSegments = segments.size();
+
+                        System.out.printf("Page %d split into %d segments%n", page.pageNumber(), totalSegments);
+
+                        // --- Step 4: Embed + Store each segment ---
+                        for (int i = 0; i < totalSegments; i++) {
+                                TextSegment segment = segments.get(i);
+
+                                Embedding embedding = embeddingModel.embed(segment).content();
+
+                                store.add(embedding, segment);
+
+                                totalSegmentsProcessed++;
+
+                                if (progressCallback != null) {
+                                        progressCallback.accept(new ProgressInfo(
+                                                        totalSegmentsProcessed,
+                                                        -1, // total unknown across all pages
+                                                        String.format("Processed segment %d of page %d/%d",
+                                                                        i + 1, page.pageNumber(), totalPages)));
+                                }
                         }
-                        
-                        System.out.println("Processed segment " + (i + 1) + "/" + totalSegments);
                 }
-                
-                System.out.println("Completed ingestion of " + totalSegments + " segments");
+
+                System.out.println("✅ Completed ingestion of " + totalSegmentsProcessed + " total segments from "
+                                + totalPages + " pages");
         }
 
         /**
@@ -99,14 +108,14 @@ public class QdrantService {
          * @param userId      User who uploaded the document
          * @param fileName    Original file name
          */
-        public void ingest(
-                        String text,
-                        String tenantId,
-                        String workspaceId,
-                        String userId,
-                        String fileName) {
-                ingest(text, tenantId, workspaceId, userId, fileName, null);
-        }
+        // public void ingest(
+        // String text,
+        // String tenantId,
+        // String workspaceId,
+        // String userId,
+        // String fileName) {
+        // ingest(text, tenantId, workspaceId, userId, fileName, null);
+        // }
 
         @PreDestroy
         void close() {
@@ -170,12 +179,12 @@ public class QdrantService {
          * Record to hold progress information during ingestion
          */
         public record ProgressInfo(
-                int currentSegment,
-                int totalSegments,
-                String message
-        ) {
+                        int currentSegment,
+                        int totalSegments,
+                        String message) {
                 public int getProgressPercentage() {
-                        if (totalSegments == 0) return 0;
+                        if (totalSegments == 0)
+                                return 0;
                         return (int) ((currentSegment * 100.0) / totalSegments);
                 }
         }

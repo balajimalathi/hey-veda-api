@@ -45,13 +45,13 @@ public class GreetingResource {
     public String ingestion(@RequestBody IngestionRequest request) {
 
         // Updated to include multi-tenancy metadata
-        qdrantService.ingest(
-                request.content,
-                request.tenantId, // tenantId
-                request.workspaceId, // workspaceId
-                "f9ecebdd-03d6-4d6d-b210-4d24ee719b9d", // userId
-                request.fileName // fileName
-        );
+        // qdrantService.ingest(
+        //         request.content,
+        //         request.tenantId, // tenantId
+        //         request.workspaceId, // workspaceId
+        //         "f9ecebdd-03d6-4d6d-b210-4d24ee719b9d", // userId
+        //         request.fileName // fileName
+        // );
 
         return "Hello from Quarkus REST";
     }

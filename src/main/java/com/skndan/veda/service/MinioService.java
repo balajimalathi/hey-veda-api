@@ -44,11 +44,36 @@ public class MinioService {
   public String uploadFile(String bucket, String filename, Path filePath) {
     try {
       String objectName = tenantContext.getTenantId() + "/" + filename;
-      
+
       try (InputStream inputStream = Files.newInputStream(filePath)) {
         long fileSize = Files.size(filePath);
         String contentType = Files.probeContentType(filePath);
-        
+
+        if (contentType == null) {
+          contentType = "application/octet-stream";
+        }
+
+        minioClient.putObject(
+            PutObjectArgs.builder()
+                .bucket(bucket)
+                .object(objectName)
+                .stream(inputStream, fileSize, -1)
+                .contentType(contentType)
+                .build());
+      }
+
+      return objectName;
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to upload file to MinIO: " + e.getMessage(), e);
+    }
+  }
+
+  public String uploadBookFile(String bucket, String objectName, Path filePath) {
+    try {
+      try (InputStream inputStream = Files.newInputStream(filePath)) {
+        long fileSize = Files.size(filePath);
+        String contentType = Files.probeContentType(filePath);
+
         if (contentType == null) {
           contentType = "application/octet-stream";
         }
@@ -92,8 +117,8 @@ public class MinioService {
               .bucket(bucket)
               .object(objectName)
               .build());
-           FileOutputStream fos = new FileOutputStream(tempFile)) {
-        
+          FileOutputStream fos = new FileOutputStream(tempFile)) {
+
         byte[] buffer = new byte[8192];
         int bytesRead;
         while ((bytesRead = stream.read(buffer)) != -1) {
