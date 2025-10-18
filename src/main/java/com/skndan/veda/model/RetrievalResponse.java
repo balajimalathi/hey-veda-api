@@ -6,16 +6,17 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 
 public record RetrievalResponse(
     String answer,
-    List<SourceReference> sources
-) {
+    List<SourceReference> sources) {
   @JsonCreator
   public RetrievalResponse {
   }
-  
+
   public record SourceReference(
       String fileName,
-      String excerpt,
-      Double score,
-      int sourceNumber
-  ) {}
+      // String content,
+      int pageNumber,
+      int index,
+      String imageUrls,
+      int sourceNumber) {
+  }
 }

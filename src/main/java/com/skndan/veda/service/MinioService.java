@@ -12,6 +12,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
+
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -39,6 +41,16 @@ public class MinioService {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  public String getPreviewUrl(String bucket, String objectPath) throws Exception {
+    return minioClient.getPresignedObjectUrl(
+        GetPresignedObjectUrlArgs.builder()
+            .method(Method.GET)
+            .bucket(bucket)
+            .object(objectPath)
+            .expiry(1, TimeUnit.HOURS) // 1 hour valid
+            .build());
   }
 
   public String uploadFile(String bucket, String filename, Path filePath) {

@@ -1,5 +1,6 @@
 package com.skndan.veda.resource;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -12,6 +13,7 @@ import org.jboss.logging.Logger;
 
 import com.skndan.veda.model.RetrievalResponse;
 import com.skndan.veda.service.Bot;
+import com.skndan.veda.service.MinioService;
 import com.skndan.veda.service.QdrantRetriever;
 
 import jakarta.inject.Inject;
@@ -31,6 +33,9 @@ public class BotResource {
 
   @Inject
   Bot bot;
+
+  @Inject
+  MinioService minioService;
 
   @POST
   @Path("/ask")
@@ -54,14 +59,18 @@ public class BotResource {
             .filter(s -> parsed.citedSourceNumbers.contains(s.sourceNumber()))
             .map(s -> new RetrievalResponse.SourceReference(
                 s.fileName(),
-                s.content(),
-                s.score(),
+                // s.content(),
+                s.pageNumber(),
+                s.index(),
+                s.imageUrls(),
                 s.sourceNumber()))
             .collect(Collectors.toList());
       } else {
         // Return empty sources for invalid responses
         sourceRefs = List.of();
       }
+
+      sourceRefs = enrichWithPreviewUrls(sourceRefs);
 
       LOG.info("Query: " + request.question + " | Valid: " + parsed.isValid +
           " | Sources: " + sourceRefs.size());
@@ -72,6 +81,40 @@ public class BotResource {
       // Clean up thread-local storage
       QdrantRetriever.clearSources();
     }
+  }
+
+  public List<RetrievalResponse.SourceReference> enrichWithPreviewUrls(
+      List<RetrievalResponse.SourceReference> sourceRefs) {
+    for (int i = 0; i < sourceRefs.size(); i++) {
+      var ref = sourceRefs.get(i);
+
+      try {
+        // imageUrls can be comma-separated list like "books/img1.png,books/img2.png"
+        String[] paths = ref.imageUrls().split(",");
+        List<String> presignedUrls = new ArrayList<>();
+
+        for (String path : paths) {
+          String trimmed = path.trim();
+          if (!trimmed.isEmpty()) {
+            String url = minioService.getPreviewUrl("books", trimmed);
+            presignedUrls.add(url);
+          }
+        }
+
+        // Replace same index with updated record
+        sourceRefs.set(i, new RetrievalResponse.SourceReference(
+            ref.fileName(),
+            // ref.content(),
+            ref.pageNumber(),
+            ref.index(),
+            String.join(",", presignedUrls),
+            ref.sourceNumber()));
+
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
+    return sourceRefs;
   }
 
   private ParsedResponse parseResponse(String rawResponse) {
@@ -116,32 +159,33 @@ public class BotResource {
   public record ChatRequest(String question) {
   }
 
-  @POST
-  @Path("/questionnaire")
-  @Produces(MediaType.APPLICATION_JSON)
-  public RetrievalResponse createQuestionnaire(@RequestBody RetrievalRequest request) {
-    try {
-      // Get answer from bot
-      String response = bot.answer(request.question);
+  // @POST
+  // @Path("/questionnaire")
+  // @Produces(MediaType.APPLICATION_JSON)
+  // public RetrievalResponse createQuestionnaire(@RequestBody RetrievalRequest
+  // request) {
+  // try {
+  // // Get answer from bot
+  // String response = bot.answer(request.question);
 
-      // Retrieve sources from thread-local storage
-      List<QdrantRetriever.SourceInfo> sources = QdrantRetriever.getLastRetrievedSources();
+  // // Retrieve sources from thread-local storage
+  // List<QdrantRetriever.SourceInfo> sources =
+  // QdrantRetriever.getLastRetrievedSources();
 
-      // Convert to SourceReference objects
-      List<RetrievalResponse.SourceReference> sourceRefs = sources.stream()
-          .map(s -> new RetrievalResponse.SourceReference(
-              s.fileName(),
-              s.content(),
-              s.score(),
-              s.sourceNumber()))
-          .collect(Collectors.toList());
+  // // Convert to SourceReference objects
+  // List<RetrievalResponse.SourceReference> sourceRefs = sources.stream()
+  // .map(s -> new RetrievalResponse.SourceReference(
+  // s.fileName(),
+  // s.content(),
+  // s.sourceNumber()))
+  // .collect(Collectors.toList());
 
-      // Return response with sources
-      return new RetrievalResponse(response, sourceRefs);
-    } finally {
-      // Clean up thread-local storage
-      QdrantRetriever.clearSources();
-    }
-  }
+  // // Return response with sources
+  // return new RetrievalResponse(response, sourceRefs);
+  // } finally {
+  // // Clean up thread-local storage
+  // QdrantRetriever.clearSources();
+  // }
+  // }
 
 }
